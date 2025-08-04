@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+postgres:
+  url: "postgres://user:password@localhost:5432/cron?sslmode=disable"
+
+rabbitmq:
+  url: "amqp://guest:guest@localhost:5672/"
+  queue_name: "cron_jobs"
+
+scheduler:
+  concurrency: 10
+  webhook_timeout_seconds: 3
+  job_ttl_seconds: 3600
+
+prometheus:
+  port: 9090
