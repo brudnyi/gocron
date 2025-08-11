@@ -3,7 +3,6 @@ package scheduler
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +11,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"gitlab.uis.dev/service/gocron/internal/config"
 	"gitlab.uis.dev/service/gocron/internal/models"
 	"gitlab.uis.dev/service/gocron/internal/storage/postgres"
 	"gitlab.uis.dev/service/gocron/internal/worker"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Scheduler handles the core business logic of scheduling and running jobs.
@@ -24,7 +24,7 @@ type Scheduler struct {
 	log    *slog.Logger
 	cfg    config.SchedulerConfig
 	store  postgres.Storer
-	worker *worker.Manager
+	worker worker.ManagerInterface
 	client *http.Client
 }
 
@@ -34,7 +34,7 @@ func New(log *slog.Logger, cfg config.Config, store postgres.Storer) (*Scheduler
 		log:    log,
 		cfg:    cfg.Scheduler,
 		store:  store,
-		client: &http.Client{Timeout: cfg.Scheduler.WebhookTimeoutSeconds},
+		client: &http.Client{Timeout: cfg.Scheduler.WebhookTimeout},
 	}
 
 	workerManager, err := worker.NewManager(log, cfg.RabbitMQ, cfg.Scheduler, s.processJob)
@@ -65,18 +65,27 @@ func (s *Scheduler) CreateJob(ctx context.Context, req models.CreateJobRequest) 
 		return nil, fmt.Errorf("failed to marshal webhook: %w", err)
 	}
 
+	delayDuration := time.Duration(req.Delay) * time.Second
 	params := postgres.CreateJobParams{
 		CustomID:   pgtype.Text{String: *req.CustomID, Valid: req.CustomID != nil},
 		Delay:      int32(req.Delay),
 		Repeat:     int32(req.Repeat),
 		Webhook:    webhookJSON,
-		DeadlineAt: pgtype.Timestamptz{Time: time.Now().Add(time.Duration(req.Delay) * time.Second), Valid: true},
+		DeadlineAt: pgtype.Timestamptz{Time: time.Now().Add(delayDuration), Valid: true},
 	}
 
-	dbJob, err := s.store.CreateJob(ctx, params)
+	var dbJob postgres.Job
+	err = s.store.ExecTx(ctx, func(q *postgres.Queries) error {
+		var txErr error
+		dbJob, txErr = q.CreateJob(ctx, params)
+		if txErr != nil {
+			return fmt.Errorf("failed to create job in db: %w", txErr)
+		}
+		return nil
+	})
+
 	if err != nil {
-		// Handle unique constraint violation for custom_id
-		return nil, fmt.Errorf("failed to create job in db: %w", err)
+		return nil, err // The error is already wrapped
 	}
 
 	job, err := dbJobToModel(dbJob)
@@ -84,8 +93,11 @@ func (s *Scheduler) CreateJob(ctx context.Context, req models.CreateJobRequest) 
 		return nil, err
 	}
 
-	if err := s.worker.Publish(ctx, job.ID, time.Duration(job.Delay)*time.Second); err != nil {
-		// In a real app, we might want to roll back the DB transaction
+	// Publish to worker only after the DB transaction is successful
+	if err := s.worker.Publish(ctx, job.ID, delayDuration); err != nil {
+		// This is a critical failure. The job is in the DB but not in the queue.
+		// A background reconciliation process would be needed for a robust system.
+		s.log.Error("CRITICAL: failed to publish job after DB transaction", "job_id", job.ID, "error", err)
 		return nil, fmt.Errorf("failed to publish job: %w", err)
 	}
 
@@ -95,67 +107,89 @@ func (s *Scheduler) CreateJob(ctx context.Context, req models.CreateJobRequest) 
 
 // processJob is the core logic for handling a job received from a worker.
 func (s *Scheduler) processJob(ctx context.Context, jobID int64) error {
-	// 1. Atomically lock the job in the DB
-	lockedJob, err := s.store.ProcessJob(ctx, jobID)
-	if err != nil {
-		// If no rows are returned, it means another worker got it. This is not an error.
-		if errors.Is(err, sql.ErrNoRows) {
-			s.log.Info("job already processed by another worker", "job_id", jobID)
-			return nil
+	var jobToReschedule *models.Job
+	var rescheduleDelay time.Duration
+
+	err := s.store.ExecTx(ctx, func(q *postgres.Queries) error {
+		// 1. Atomically lock the job in the DB
+		lockedJob, err := q.ProcessJob(ctx, jobID)
+		if err != nil {
+			// If no rows are returned, it means another worker got it. This is not an error.
+			if errors.Is(err, pgx.ErrNoRows) {
+				s.log.Info("job already processed by another worker", "job_id", jobID)
+				return nil // Return nil to commit the (empty) transaction
+			}
+			return fmt.Errorf("failed to process job in db: %w", err)
 		}
-		return fmt.Errorf("failed to process job in db: %w", err)
-	}
 
-	s.log.Info("job locked for processing", "job_id", lockedJob.ID)
+		s.log.Info("job locked for processing", "job_id", lockedJob.ID)
 
-	job, err := dbJobToModel(lockedJob)
+		job, err := dbJobToModel(lockedJob)
+		if err != nil {
+			return err // Will cause a rollback
+		}
+
+		// 2. Execute the webhook
+		log := s.executeWebhook(ctx, job)
+
+		// 3. Create the log entry
+		_, err = q.CreateJobLog(ctx, postgres.CreateJobLogParams{
+			JobID:       job.ID,
+			StartedAt:   pgtype.Timestamptz{Time: log.StartedAt, Valid: true},
+			CompletedAt: pgtype.Timestamptz{Time: log.CompletedAt, Valid: true},
+			StatusCode:  pgtype.Int4{Int32: log.StatusCode, Valid: true},
+			Reason:      pgtype.Text{String: log.Reason, Valid: log.Reason != ""},
+			Payload:     pgtype.Text{String: log.Payload, Valid: log.Payload != ""},
+			Error:       pgtype.Text{String: log.Error, Valid: log.Error != ""},
+			ErrorType:   pgtype.Text{String: log.ErrorType, Valid: log.ErrorType != ""},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create job log: %w", err) // Will cause a rollback
+		}
+
+		// 4. Reschedule or complete the job
+		if job.Executions+1 >= job.Repeat {
+			// Mark as completed
+			_, err = q.UpdateJobStatus(ctx, postgres.UpdateJobStatusParams{
+				ID:          job.ID,
+				Status:      postgres.JobStatusCOMPLETED,
+				CompletedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+			})
+			s.log.Info("job completed", "job_id", job.ID)
+		} else {
+			// Reschedule
+			delay := time.Duration(job.Delay) * time.Second
+			deadline := time.Now().Add(delay)
+			_, err = q.UpdateJobAfterExecution(ctx, postgres.UpdateJobAfterExecutionParams{
+				ID:         job.ID,
+				Status:     postgres.JobStatusACTIVE,
+				UpdatedAt:  pgtype.Timestamptz{Time: time.Now(), Valid: true},
+				DeadlineAt: pgtype.Timestamptz{Time: deadline, Valid: true},
+			})
+			if err == nil {
+				jobToReschedule = job
+				rescheduleDelay = delay
+			}
+		}
+		return err // Return the last error to be handled by ExecTx
+	})
+
 	if err != nil {
 		return err
 	}
 
-	// 2. Execute the webhook
-	log := s.executeWebhook(ctx, job)
-
-	// 3. Create the log entry
-	_, err = s.store.CreateJobLog(ctx, postgres.CreateJobLogParams{
-		JobID:       job.ID,
-		StartedAt:   pgtype.Timestamptz{Time: log.StartedAt, Valid: true},
-		CompletedAt: pgtype.Timestamptz{Time: log.CompletedAt, Valid: true},
-		StatusCode:  pgtype.Int4{Int32: log.StatusCode, Valid: true},
-		Reason:      pgtype.Text{String: log.Reason, Valid: log.Reason != ""},
-		Payload:     pgtype.Text{String: log.Payload, Valid: log.Payload != ""},
-		Error:       pgtype.Text{String: log.Error, Valid: log.Error != ""},
-		ErrorType:   pgtype.Text{String: log.ErrorType, Valid: log.ErrorType != ""},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create job log: %w", err)
-	}
-
-	// 4. Reschedule or complete the job
-	if job.Executions+1 >= job.Repeat {
-		// Mark as completed
-		_, err = s.store.UpdateJobStatus(ctx, postgres.UpdateJobStatusParams{
-			ID:          job.ID,
-			Status:      postgres.JobStatusCOMPLETED,
-			CompletedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
-		})
-		s.log.Info("job completed", "job_id", job.ID)
-	} else {
-		// Reschedule
-		deadline := time.Now().Add(time.Duration(job.Delay) * time.Second)
-		_, err = s.store.UpdateJobAfterExecution(ctx, postgres.UpdateJobAfterExecutionParams{
-			ID:         job.ID,
-			Status:     postgres.JobStatusACTIVE,
-			UpdatedAt:  pgtype.Timestamptz{Time: time.Now(), Valid: true},
-			DeadlineAt: pgtype.Timestamptz{Time: deadline, Valid: true},
-		})
-		if err == nil {
-			s.worker.Publish(ctx, job.ID, time.Duration(job.Delay)*time.Second)
-			s.log.Info("job rescheduled", "job_id", job.ID, "next_run", deadline)
+	// Publish to worker only after the DB transaction is successful
+	if jobToReschedule != nil {
+		if pubErr := s.worker.Publish(ctx, jobToReschedule.ID, rescheduleDelay); pubErr != nil {
+			s.log.Error("CRITICAL: failed to republish job after DB transaction", "job_id", jobToReschedule.ID, "error", pubErr)
+			// The job is in the DB as 'ACTIVE' but not in the queue.
+			// A background reconciliation process is needed.
+			return fmt.Errorf("failed to republish job %d: %w", jobToReschedule.ID, pubErr)
 		}
+		s.log.Info("job rescheduled", "job_id", jobToReschedule.ID, "next_run", time.Now().Add(rescheduleDelay))
 	}
 
-	return err
+	return nil
 }
 
 func (s *Scheduler) executeWebhook(ctx context.Context, job *models.Job) models.JobLog {
@@ -203,7 +237,12 @@ func (s *Scheduler) executeWebhook(ctx context.Context, job *models.Job) models.
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		log.Error = readErr.Error()
+		log.ErrorType = "ResponseReadError"
+	}
+
 	log.StatusCode = int32(resp.StatusCode)
 	log.Reason = resp.Status
 	log.Payload = string(body)
@@ -244,5 +283,3 @@ func dbJobToModel(dbJob postgres.Job) (*models.Job, error) {
 		CompletedAt: completedAt,
 	}, nil
 }
-
-

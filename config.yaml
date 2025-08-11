@@ -1,5 +1,6 @@
 server:
   port: 8080
+  shutdown_timeout: 10s
 
 postgres:
   url: "postgres://user:password@localhost:5432/cron?sslmode=disable"
@@ -10,8 +11,8 @@ rabbitmq:
 
 scheduler:
   concurrency: 10
-  webhook_timeout_seconds: 3
-  job_ttl_seconds: 3600
+  webhook_timeout: 3s
+  job_ttl: 1h
 
 prometheus:
   port: 9090

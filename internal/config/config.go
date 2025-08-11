@@ -18,7 +18,8 @@ type Config struct {
 
 // ServerConfig holds server specific configuration.
 type ServerConfig struct {
-	Port int `mapstructure:"port"`
+	Port            int           `mapstructure:"port"`
+	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
 }
 
 // PostgresConfig holds postgres specific configuration.
@@ -34,9 +35,9 @@ type RabbitMQConfig struct {
 
 // SchedulerConfig holds scheduler specific configuration.
 type SchedulerConfig struct {
-	Concurrency           int           `mapstructure:"concurrency"`
-	WebhookTimeoutSeconds time.Duration `mapstructure:"webhook_timeout_seconds"`
-	JobTTLSeconds         time.Duration `mapstructure:"job_ttl_seconds"`
+	Concurrency    int           `mapstructure:"concurrency"`
+	WebhookTimeout time.Duration `mapstructure:"webhook_timeout"`
+	JobTTL         time.Duration `mapstructure:"job_ttl"`
 }
 
 // PrometheusConfig holds prometheus specific configuration.
@@ -46,6 +47,17 @@ type PrometheusConfig struct {
 
 // LoadConfig reads configuration from file or environment variables.
 func LoadConfig(path string) (config Config, err error) {
+	// Set default values
+	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("server.shutdown_timeout", "10s")
+	viper.SetDefault("postgres.url", "postgres://user:password@localhost:5432/cron?sslmode=disable")
+	viper.SetDefault("rabbitmq.url", "amqp://guest:guest@localhost:5672/")
+	viper.SetDefault("rabbitmq.queue_name", "cron_jobs")
+	viper.SetDefault("scheduler.concurrency", 10)
+	viper.SetDefault("scheduler.webhook_timeout", "5s")
+	viper.SetDefault("scheduler.job_ttl", "1h")
+	viper.SetDefault("prometheus.port", 9090)
+
 	viper.AddConfigPath(path)
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -55,14 +67,12 @@ func LoadConfig(path string) (config Config, err error) {
 
 	err = viper.ReadInConfig()
 	if err != nil {
-		return
+		// If the config file is not found, we can continue as we have defaults and env vars
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return
+		}
 	}
 
 	err = viper.Unmarshal(&config)
-
-	// Set duration fields manually
-	config.Scheduler.WebhookTimeoutSeconds = config.Scheduler.WebhookTimeoutSeconds * time.Second
-	config.Scheduler.JobTTLSeconds = config.Scheduler.JobTTLSeconds * time.Second
-	
 	return
 }
