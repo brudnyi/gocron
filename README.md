@@ -1,32 +1,32 @@
 # GoCron Service
 
-GoCron is a flexible and reliable service for scheduling and managing time-based jobs. It allows clients to create, monitor, and manage scheduled tasks that trigger webhooks at specified intervals. This service is designed to be highly available and scalable, making it suitable for a wide range of use cases, from simple reminders to complex, recurring tasks.
+GoCron — гибкий и надёжный сервис для планирования и управления задачами по времени. Он позволяет клиентам создавать, отслеживать и управлять запланированными заданиями, которые вызывают вебхуки через заданные интервалы. Этот сервис спроектирован для высокой доступности и масштабируемости, что делает его подходящим для широкого круга задач — от простых напоминаний до сложных периодических заданий.
 
-## Features
+## Возможности
 
-- **Dynamic Job Scheduling:** Schedule jobs to run after a specified delay and to repeat a certain number of times.
-- **Webhook Integration:** Trigger any HTTP/HTTPS endpoint with configurable methods, headers, and data.
-- **Custom Job IDs:** Assign custom IDs to jobs for easy tracking and management.
-- **Job Status Tracking:** Monitor the status of each job, from "ACTIVE" to "COMPLETED".
-- **Scalable Architecture:** Built with a robust architecture that can handle a large number of concurrent jobs.
+- **Динамическое планирование задач:** Планирование задач с задержкой перед первым запуском и повторением заданное количество раз.
+- **Интеграция вебхуков:** Вызов любого HTTP/HTTPS-эндпоинта с настраиваемыми методами, заголовками и данными.
+- **Пользовательские ID задач:** Возможность назначать кастомные идентификаторы задач для облегчённого отслеживания и управления.
+- **Отслеживание статуса задач:** Мониторинг статуса каждой задачи — от "ACTIVE" до "COMPLETED".
+- **Масштабируемая архитектура:** Построено с учётом обработки большого количества параллельных задач.
 
-## Getting Started
+## Начало работы
 
-### Prerequisites
+### Требования
 
-- [Go](https://golang.org/) (version 1.20 or higher)
+- [Go](https://golang.org/) (версия 1.20 или выше)
 - [PostgreSQL](https://www.postgresql.org/)
 
-### Installation
+### Установка
 
-1. **Clone the repository:**
+1. **Клонируйте репозиторий:**
    ```sh
    git clone https://gitlab.uis.dev/service/gocron.git
    cd gocron
    ```
 
-2. **Create a configuration file:**
-   Create a `config.yaml` file in the root of the project with the following content:
+2. **Создайте конфигурационный файл:**
+   Создайте файл `config.yaml` в корне проекта со следующим содержимым:
    ```yaml
    server:
      port: 8080
@@ -35,37 +35,37 @@ GoCron is a flexible and reliable service for scheduling and managing time-based
      url: "postgres://user:password@localhost:5432/gocron?sslmode=disable"
    ```
 
-3. **Run database migrations:**
+3. **Запустите миграции базы данных:**
    ```sh
    make migrate-up
    ```
 
-4. **Build and run the service:**
+4. **Соберите и запустите сервис:**
    ```sh
    go build ./cmd/gocron
    ./gocron
    ```
 
-The service will now be running on `http://localhost:8080`.
+Сервис будет доступен по адресу `http://localhost:8080`.
 
-## API Documentation
+## Документация API
 
-### Health Check
+### Проверка статуса (Health Check)
 
-- **Endpoint:** `GET /`
-- **Description:** Checks the health of the service.
-- **Success Response (200 OK):**
+- **Эндпоинт:** `GET /`
+- **Описание:** Проверяет состояние сервиса.
+- **Успешный ответ (200 OK):**
   ```json
   {
     "status": "ok"
   }
   ```
 
-### Create a New Job
+### Создание новой задачи
 
-- **Endpoint:** `POST /jobs`
-- **Description:** Creates a new job with the specified parameters.
-- **Request Body:**
+- **Эндпоинт:** `POST /jobs`
+- **Описание:** Создаёт новую задачу с указанными параметрами.
+- **Тело запроса:**
   ```json
   {
     "custom_id": "my-unique-job-id",
@@ -83,16 +83,16 @@ The service will now be running on `http://localhost:8080`.
     }
   }
   ```
-  - `custom_id` (optional, string): A unique identifier for the job.
-  - `delay` (required, integer): The delay in seconds before the first execution.
-  - `repeat` (required, integer): The number of times the job should repeat.
-  - `webhook` (required, object): The webhook to be triggered.
-    - `url` (required, string): The URL of the webhook.
-    - `method` (required, string): The HTTP method to be used (e.g., "POST", "GET").
-    - `headers` (optional, object): A map of HTTP headers.
-    - `json` (optional, object): A JSON object to be sent as the request body.
+  - `custom_id` (необязательно, строка): Уникальный идентификатор задачи.
+  - `delay` (обязательно, целое): Задержка в секундах до первого выполнения.
+  - `repeat` (обязательно, целое): Количество повторений задачи.
+  - `webhook` (обязательно, объект): Вебхук, который будет вызван.
+    - `url` (обязательно, строка): URL вебхука.
+    - `method` (обязательно, строка): HTTP-метод (например, "POST", "GET").
+    - `headers` (необязательно, объект): Карта HTTP-заголовков.
+    - `json` (необязательно, объект): JSON-объект, отправляемый в теле запроса.
 
-- **Success Response (201 Created):**
+- **Успешный ответ (201 Created):**
   ```json
   {
     "id": 1,
@@ -117,3 +117,4 @@ The service will now be running on `http://localhost:8080`.
     "completed_at": null
   }
   ```
+EOF && nl -ba README.md | sed -n '1,200p'
