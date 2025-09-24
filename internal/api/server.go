@@ -15,15 +15,15 @@ import (
 type Server struct {
 	log       *slog.Logger
 	router    *chi.Mux
-	scheduler *scheduler.Scheduler
+	scheduler scheduler.Interface
 }
 
 // NewServer creates a new HTTP server.
-func NewServer(log *slog.Logger, scheduler *scheduler.Scheduler) *Server {
+func NewServer(log *slog.Logger, schedulerInstance scheduler.Interface) *Server {
 	s := &Server{
 		log:       log,
 		router:    chi.NewRouter(),
-		scheduler: scheduler,
+		scheduler: schedulerInstance,
 	}
 
 	s.setupMiddleware()
