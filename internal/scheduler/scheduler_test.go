@@ -45,78 +45,85 @@ var (
 	testStore     postgres.Storer
 	mockWorker    *MockWorkerManager
 	testPool      *pgxpool.Pool
+    dbAvailable   bool
 )
 
 func TestMain(m *testing.M) {
-	// Setup
-	cfg, err := config.LoadConfig("../..") // Load config from root
-	if err != nil {
-		log.Fatalf("could not load config: %v", err)
-	}
+    // Setup
+    cfg, err := config.LoadConfig("../..") // Load config from root
+    if err != nil {
+        log.Printf("could not load config: %v", err)
+    }
 
-	// Use a different database for testing if specified, otherwise use the default one
-	// It's highly recommended to use a dedicated test database
-	testDbUrl := os.Getenv("TEST_DATABASE_URL")
-	if testDbUrl == "" {
-		testDbUrl = cfg.Postgres.URL
-		log.Println("TEST_DATABASE_URL not set, using default database. PLEASE BE CAREFUL.")
-	}
+    // Use a different database for testing if specified, otherwise use the default one
+    testDbUrl := os.Getenv("TEST_DATABASE_URL")
+    if testDbUrl == "" && err == nil {
+        testDbUrl = cfg.Postgres.URL
+        log.Println("TEST_DATABASE_URL not set, using default database. PLEASE BE CAREFUL.")
+    }
 
-	testPool, err = pgxpool.New(context.Background(), testDbUrl)
-	if err != nil {
-		log.Fatalf("could not connect to database: %v", err)
-	}
-	defer testPool.Close()
+    if testDbUrl != "" {
+        if p, perr := pgxpool.New(context.Background(), testDbUrl); perr == nil {
+            testPool = p
+            defer func() { if testPool != nil { testPool.Close() } }()
 
-	// Run migrations
-	// This is a simplified approach. In a real project, you'd use a migration tool.
-	migrations, err := os.ReadFile("../../migrations/000001_create_jobs_table.up.sql")
-	if err != nil {
-		log.Fatalf("could not read migration 1: %v", err)
-	}
-	_, err = testPool.Exec(context.Background(), string(migrations))
-	if err != nil {
-		log.Fatalf("could not run migration 1: %v", err)
-	}
-	migrations, err = os.ReadFile("../../migrations/000002_create_job_logs_table.up.sql")
-	if err != nil {
-		log.Fatalf("could not read migration 2: %v", err)
-	}
-	_, err = testPool.Exec(context.Background(), string(migrations))
-	if err != nil {
-		log.Fatalf("could not run migration 2: %v", err)
-	}
+            // Run migrations
+            if mig1, rerr := os.ReadFile("../../migrations/000001_create_jobs_table.up.sql"); rerr == nil {
+                if _, e := testPool.Exec(context.Background(), string(mig1)); e == nil {
+                    if mig2, r2 := os.ReadFile("../../migrations/000002_create_job_logs_table.up.sql"); r2 == nil {
+                        if _, e2 := testPool.Exec(context.Background(), string(mig2)); e2 == nil {
+                            dbAvailable = true
+                        } else {
+                            log.Printf("could not run migration 2: %v", e2)
+                        }
+                    } else {
+                        log.Printf("could not read migration 2: %v", r2)
+                    }
+                } else {
+                    log.Printf("could not run migration 1: %v", e)
+                }
+            } else {
+                log.Printf("could not read migration 1: %v", rerr)
+            }
+        } else {
+            log.Printf("could not connect to database: %v", perr)
+        }
+    }
 
-	testStore = postgres.NewStore(testPool)
-	mockWorker = NewMockWorkerManager()
+    if dbAvailable {
+        testStore = postgres.NewStore(testPool)
+        mockWorker = NewMockWorkerManager()
+        testScheduler = &Scheduler{
+            log:    slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+            cfg:    cfg.Scheduler,
+            store:  testStore,
+            worker: mockWorker,
+            client: nil,
+        }
+    } else {
+        log.Println("Database unavailable, scheduler integration tests will be skipped.")
+    }
 
-	testScheduler = &Scheduler{
-		log:    slog.New(slog.NewJSONHandler(os.Stdout, nil)),
-		cfg:    cfg.Scheduler,
-		store:  testStore,
-		worker: mockWorker,
-		client: nil, // HTTP client is not needed for these tests
-	}
-
-	// Run tests
-	code := m.Run()
-
-	// Teardown
-	// You might want to drop the tables or the whole database here
-	// For simplicity, we'll just close the pool, which is already deferred.
-
-	os.Exit(code)
+    // Run tests
+    code := m.Run()
+    os.Exit(code)
 }
 
 func cleanup(t *testing.T) {
-	// Truncate tables to ensure a clean state for each test
-	_, err := testPool.Exec(context.Background(), "TRUNCATE TABLE job_logs, jobs RESTART IDENTITY")
-	require.NoError(t, err)
-	// Reset the mock worker
-	mockWorker.PublishedJobs = make(map[int64]time.Duration)
+    if !dbAvailable {
+        t.Skip("database not available")
+    }
+    // Truncate tables to ensure a clean state for each test
+    _, err := testPool.Exec(context.Background(), "TRUNCATE TABLE job_logs, jobs RESTART IDENTITY")
+    require.NoError(t, err)
+    // Reset the mock worker
+    mockWorker.PublishedJobs = make(map[int64]time.Duration)
 }
 
 func TestCreateJob(t *testing.T) {
+    if !dbAvailable {
+        t.Skip("database not available")
+    }
 	cleanup(t)
 	ctx := context.Background()
 	customID := "test-job-123"
@@ -152,6 +159,9 @@ func TestCreateJob(t *testing.T) {
 }
 
 func TestProcessJob_Complete(t *testing.T) {
+    if !dbAvailable {
+        t.Skip("database not available")
+    }
 	cleanup(t)
 	ctx := context.Background()
 
@@ -197,6 +207,9 @@ func TestProcessJob_Complete(t *testing.T) {
 }
 
 func TestProcessJob_Reschedule(t *testing.T) {
+    if !dbAvailable {
+        t.Skip("database not available")
+    }
 	cleanup(t)
 	ctx := context.Background()
 	delay := 5
