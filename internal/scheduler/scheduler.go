@@ -19,6 +19,13 @@ import (
 	"gitlab.uis.dev/service/gocron/internal/worker"
 )
 
+// Interface defines the interface for scheduler operations
+type Interface interface {
+	CreateJob(ctx context.Context, req models.CreateJobRequest) (*models.Job, error)
+	Start(ctx context.Context)
+	Stop()
+}
+
 // Scheduler handles the core business logic of scheduling and running jobs.
 type Scheduler struct {
 	log    *slog.Logger
