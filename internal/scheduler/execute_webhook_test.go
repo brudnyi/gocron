@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
