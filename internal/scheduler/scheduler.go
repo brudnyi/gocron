@@ -16,20 +16,34 @@ import (
 	"gitlab.uis.dev/service/gocron/internal/config"
 	"gitlab.uis.dev/service/gocron/internal/models"
 	"gitlab.uis.dev/service/gocron/internal/storage/postgres"
-	"gitlab.uis.dev/service/gocron/internal/worker"
+    "gitlab.uis.dev/service/gocron/internal/worker"
 )
+
+// Store defines just what the scheduler needs from storage.
+// Declared locally to keep the interface close to its usage site.
+type Store interface {
+    ExecTx(ctx context.Context, fn func(*postgres.Queries) error) error
+}
+
+// WorkerManager defines the minimal worker contract required by the scheduler.
+// Declared locally to enable easy mocking in tests.
+type WorkerManager interface {
+    Publish(ctx context.Context, jobID int64, delay time.Duration) error
+    Start(ctx context.Context)
+    Stop()
+}
 
 // Scheduler handles the core business logic of scheduling and running jobs.
 type Scheduler struct {
 	log    *slog.Logger
 	cfg    config.SchedulerConfig
-	store  postgres.Storer
-	worker worker.ManagerInterface
+    store  Store
+    worker WorkerManager
 	client *http.Client
 }
 
 // New creates a new Scheduler.
-func New(log *slog.Logger, cfg config.Config, store postgres.Storer) (*Scheduler, error) {
+func New(log *slog.Logger, cfg config.Config, store Store) (*Scheduler, error) {
 	s := &Scheduler{
 		log:    log,
 		cfg:    cfg.Scheduler,
@@ -41,7 +55,7 @@ func New(log *slog.Logger, cfg config.Config, store postgres.Storer) (*Scheduler
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worker manager: %w", err)
 	}
-	s.worker = workerManager
+    s.worker = workerManager
 
 	return s, nil
 }
