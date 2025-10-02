@@ -1,14 +1,4 @@
 package worker
 
-import (
-	"context"
-	"time"
-)
-
-// ManagerInterface defines the interface for a worker manager.
-// It allows for mocking in tests.
-type ManagerInterface interface {
-	Publish(ctx context.Context, jobID int64, delay time.Duration) error
-	Start(ctx context.Context)
-	Stop()
-}
+// Interfaces for the worker package are declared at the place of use (scheduler).
+// This file intentionally left minimal.

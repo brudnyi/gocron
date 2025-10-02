@@ -6,12 +6,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Storer defines the interface for database operations, including transactions.
-type Storer interface {
-	Querier
-	ExecTx(ctx context.Context, fn func(*Queries) error) error
-}
-
 // Store provides all functions to execute db queries and transactions
 type Store struct {
 	*Queries
@@ -19,7 +13,7 @@ type Store struct {
 }
 
 // NewStore creates a new Store
-func NewStore(pool *pgxpool.Pool) Storer {
+func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{
 		pool:    pool,
 		Queries: New(pool),

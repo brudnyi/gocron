@@ -9,11 +9,11 @@ import (
 
 // Config holds all configuration for the application.
 type Config struct {
-	Server      ServerConfig      `mapstructure:"server"`
-	Postgres    PostgresConfig    `mapstructure:"postgres"`
-	RabbitMQ    RabbitMQConfig    `mapstructure:"rabbitmq"`
-	Scheduler   SchedulerConfig   `mapstructure:"scheduler"`
-	Prometheus  PrometheusConfig  `mapstructure:"prometheus"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Postgres   PostgresConfig   `mapstructure:"postgres"`
+	RabbitMQ   RabbitMQConfig   `mapstructure:"rabbitmq"`
+	Scheduler  SchedulerConfig  `mapstructure:"scheduler"`
+	Prometheus PrometheusConfig `mapstructure:"prometheus"`
 }
 
 // ServerConfig holds server specific configuration.

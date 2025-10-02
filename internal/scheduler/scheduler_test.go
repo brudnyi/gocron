@@ -42,7 +42,7 @@ func (m *MockWorkerManager) Stop() {}
 
 var (
 	testScheduler *Scheduler
-	testStore     postgres.Storer
+	testStore     *postgres.Store
 	mockWorker    *MockWorkerManager
 	testPool      *pgxpool.Pool
 )

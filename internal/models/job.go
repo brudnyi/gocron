@@ -14,10 +14,10 @@ const (
 
 // Webhook represents the HTTP request to be made by a job.
 type Webhook struct {
-	URL     string            `json:"url" validate:"required,url"`
-	Method  string            `json:"method" validate:"required"`
-	Headers map[string]string `json:"headers"`
-	Data    string            `json:"data"`
+	URL     string                 `json:"url" validate:"required,url"`
+	Method  string                 `json:"method" validate:"required"`
+	Headers map[string]string      `json:"headers"`
+	Data    string                 `json:"data"`
 	JSON    map[string]interface{} `json:"json"`
 }
 

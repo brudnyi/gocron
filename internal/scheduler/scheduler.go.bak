@@ -31,6 +31,18 @@ type ManagerInterface interface {
 	Stop()
 }
 
+// Storer defines the minimal interface the scheduler requires from the DB store.
+type Storer interface {
+	ExecTx(ctx context.Context, fn func(*postgres.Queries) error) error
+}
+
+// ManagerInterface defines the interface for a worker manager as required by the scheduler.
+type ManagerInterface interface {
+	Publish(ctx context.Context, jobID int64, delay time.Duration) error
+	Start(ctx context.Context)
+	Stop()
+}
+
 // Scheduler handles the core business logic of scheduling and running jobs.
 type Scheduler struct {
 	log    *slog.Logger
