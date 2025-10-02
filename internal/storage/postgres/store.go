@@ -3,13 +3,22 @@ package postgres
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Storer defines the interface for database operations, including transactions.
-type Storer interface {
-	Querier
-	ExecTx(ctx context.Context, fn func(*Queries) error) error
+// Querier defines the interface for database query operations.
+type Querier interface {
+	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
+	CreateJobLog(ctx context.Context, arg CreateJobLogParams) (JobLog, error)
+	DeleteJob(ctx context.Context, id int64) error
+	GetActiveJobs(ctx context.Context) ([]Job, error)
+	GetJob(ctx context.Context, id int64) (Job, error)
+	GetJobByCustomID(ctx context.Context, customID pgtype.Text) (Job, error)
+	GetJobLogs(ctx context.Context, arg GetJobLogsParams) ([]JobLog, error)
+	ProcessJob(ctx context.Context, id int64) (Job, error)
+	UpdateJobAfterExecution(ctx context.Context, arg UpdateJobAfterExecutionParams) (Job, error)
+	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) (Job, error)
 }
 
 // Store provides all functions to execute db queries and transactions
@@ -19,7 +28,7 @@ type Store struct {
 }
 
 // NewStore creates a new Store
-func NewStore(pool *pgxpool.Pool) Storer {
+func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{
 		pool:    pool,
 		Queries: New(pool),

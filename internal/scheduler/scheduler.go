@@ -19,17 +19,45 @@ import (
 	"gitlab.uis.dev/service/gocron/internal/worker"
 )
 
+// Querier defines the interface for database query operations.
+type Querier interface {
+	CreateJob(ctx context.Context, arg postgres.CreateJobParams) (postgres.Job, error)
+	CreateJobLog(ctx context.Context, arg postgres.CreateJobLogParams) (postgres.JobLog, error)
+	DeleteJob(ctx context.Context, id int64) error
+	GetActiveJobs(ctx context.Context) ([]postgres.Job, error)
+	GetJob(ctx context.Context, id int64) (postgres.Job, error)
+	GetJobByCustomID(ctx context.Context, customID pgtype.Text) (postgres.Job, error)
+	GetJobLogs(ctx context.Context, arg postgres.GetJobLogsParams) ([]postgres.JobLog, error)
+	ProcessJob(ctx context.Context, id int64) (postgres.Job, error)
+	UpdateJobAfterExecution(ctx context.Context, arg postgres.UpdateJobAfterExecutionParams) (postgres.Job, error)
+	UpdateJobStatus(ctx context.Context, arg postgres.UpdateJobStatusParams) (postgres.Job, error)
+}
+
+// Storer defines the interface for database operations, including transactions.
+type Storer interface {
+	Querier
+	ExecTx(ctx context.Context, fn func(*postgres.Queries) error) error
+}
+
+// ManagerInterface defines the interface for a worker manager.
+// It allows for mocking in tests.
+type ManagerInterface interface {
+	Publish(ctx context.Context, jobID int64, delay time.Duration) error
+	Start(ctx context.Context)
+	Stop()
+}
+
 // Scheduler handles the core business logic of scheduling and running jobs.
 type Scheduler struct {
 	log    *slog.Logger
 	cfg    config.SchedulerConfig
-	store  postgres.Storer
-	worker worker.ManagerInterface
+	store  Storer
+	worker ManagerInterface
 	client *http.Client
 }
 
 // New creates a new Scheduler.
-func New(log *slog.Logger, cfg config.Config, store postgres.Storer) (*Scheduler, error) {
+func New(log *slog.Logger, cfg config.Config, store Storer) (*Scheduler, error) {
 	s := &Scheduler{
 		log:    log,
 		cfg:    cfg.Scheduler,

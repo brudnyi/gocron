@@ -7,20 +7,14 @@ package postgres
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-type Querier interface {
-	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
-	CreateJobLog(ctx context.Context, arg CreateJobLogParams) (JobLog, error)
-	DeleteJob(ctx context.Context, id int64) error
-	GetActiveJobs(ctx context.Context) ([]Job, error)
-	GetJob(ctx context.Context, id int64) (Job, error)
-	GetJobByCustomID(ctx context.Context, customID pgtype.Text) (Job, error)
-	GetJobLogs(ctx context.Context, arg GetJobLogsParams) ([]JobLog, error)
-	ProcessJob(ctx context.Context, id int64) (Job, error)
-	UpdateJobAfterExecution(ctx context.Context, arg UpdateJobAfterExecutionParams) (Job, error)
-	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) (Job, error)
+type DBTX interface {
+	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...interface{}) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...interface{}) pgx.Row
 }
 
 var _ Querier = (*Queries)(nil)

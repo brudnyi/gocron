@@ -16,7 +16,7 @@ import (
 	"gitlab.uis.dev/service/gocron/internal/storage/postgres"
 )
 
-// MockWorkerManager is a mock implementation of the worker.ManagerInterface for testing.
+// MockWorkerManager is a mock implementation of the ManagerInterface for testing.
 type MockWorkerManager struct {
 	PublishedJobs map[int64]time.Duration
 }
@@ -42,7 +42,7 @@ func (m *MockWorkerManager) Stop() {}
 
 var (
 	testScheduler *Scheduler
-	testStore     postgres.Storer
+	testStore     Storer
 	mockWorker    *MockWorkerManager
 	testPool      *pgxpool.Pool
 )
